@@ -9,58 +9,88 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 5000;
 
-// In-memory storage for real-time prices
+// -------------------------
+// In-memory storage
+// -------------------------
 let coinsData = [];
 let gainers = [];
 let losers = [];
 let newlyListed = [];
 
 // -------------------------
-// Utility: fetch initial tickers from Binance & Bitget
+// Utility: fetch Binance tickers with retry
 // -------------------------
-async function fetchInitialTickers() {
+async function fetchBinanceTickers(retry = 3) {
     try {
-        // Binance
-        const { data: binanceData } = await axios.get('https://api.binance.com/api/v3/ticker/24hr');
-        const binance = binanceData.map(c => ({
+        const { data } = await axios.get('https://api.binance.com/api/v3/ticker/24hr');
+        console.log(`Fetched ${data.length} Binance tickers`);
+        return data.map(c => ({
             symbol: c.symbol,
             price: parseFloat(c.lastPrice),
             priceChangePercent: parseFloat(c.priceChangePercent),
             exchange: 'Binance',
-            listingTime: Date.now() - 1000 * 60 * 60 * 24 * 30
+            listingTime: Date.now() - 1000 * 60 * 60 * 24 * 30 // placeholder: last 30 days
         }));
+    } catch (err) {
+        console.error('Binance fetch error:', err.message);
+        if (retry > 0) {
+            console.log('Retrying Binance fetch...');
+            return fetchBinanceTickers(retry - 1);
+        }
+        return [];
+    }
+}
 
-        // Bitget
-        const { data: bitgetRaw } = await axios.get('https://api.bitget.com/api/spot/v1/market/tickers');
-        const bitget = bitgetRaw.data.map(c => ({
+// -------------------------
+// Utility: fetch Bitget tickers with retry
+// -------------------------
+async function fetchBitgetTickers(retry = 3) {
+    try {
+        const { data } = await axios.get('https://api.bitget.com/api/spot/v1/market/tickers');
+        console.log(`Fetched ${data.data.length} Bitget tickers`);
+        return data.data.map(c => ({
             symbol: c.symbol.replace('_', '').toUpperCase(),
             price: parseFloat(c.last),
             priceChangePercent: parseFloat(c.changeRate) * 100,
             exchange: 'Bitget',
             listingTime: Date.now() - 1000 * 60 * 60 * 24 * 30
         }));
-
-        coinsData = [...binance, ...bitget];
-        updateCategories();
     } catch (err) {
-        console.error('Initial fetch error:', err.message);
+        console.error('Bitget fetch error:', err.message);
+        if (retry > 0) {
+            console.log('Retrying Bitget fetch...');
+            return fetchBitgetTickers(retry - 1);
+        }
+        return [];
     }
 }
 
 // -------------------------
-// Update gainers, losers, newly listed
+// Merge tickers & update categories
 // -------------------------
 function updateCategories() {
+    if (!coinsData.length) return;
+
     gainers = [...coinsData].sort((a, b) => b.priceChangePercent - a.priceChangePercent).slice(0, 50);
     losers = [...coinsData].sort((a, b) => a.priceChangePercent - b.priceChangePercent).slice(0, 50);
 
     const now = Date.now();
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    newlyListed = coinsData.filter(c => now - c.listingTime < sevenDays);
+    newlyListed = coinsData.filter(c => c.listingTime && now - c.listingTime < sevenDays);
 }
 
 // -------------------------
-// WebSocket: Binance real-time updates
+// Initialize coinsData
+// -------------------------
+async function initializeCoins() {
+    const [binance, bitget] = await Promise.all([fetchBinanceTickers(), fetchBitgetTickers()]);
+    coinsData = [...binance, ...bitget];
+    console.log(`Total coins loaded: ${coinsData.length}`);
+    updateCategories();
+}
+
+// -------------------------
+// WebSocket: Binance
 // -------------------------
 function connectBinanceWS() {
     const ws = new WebSocket('wss://stream.binance.com:9443/ws/!ticker@arr');
@@ -89,13 +119,12 @@ function connectBinanceWS() {
 }
 
 // -------------------------
-// WebSocket: Bitget real-time updates
+// WebSocket: Bitget
 // -------------------------
 function connectBitgetWS() {
     const ws = new WebSocket('wss://ws.bitget.com/spot/v1/stream');
 
     ws.on('open', () => {
-        // Subscribe to all tickers
         ws.send(JSON.stringify({
             op: 'subscribe',
             args: [{ channel: 'tickers', instType: 'SPOT' }]
@@ -140,9 +169,11 @@ app.get('/api/crypto', (req, res) => {
 app.get('/api/candles/:symbol/:interval', async (req, res) => {
     const { symbol, interval } = req.params;
     try {
+        // Try Binance
         let { data } = await axios.get(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=100`);
         res.json({ exchange: 'Binance', data });
     } catch {
+        // Fallback Bitget
         try {
             const { data } = await axios.get(`https://api.bitget.com/api/spot/v1/market/candles?symbol=${symbol}&period=${interval}&limit=100`);
             res.json({ exchange: 'Bitget', data: data.data });
@@ -160,7 +191,7 @@ app.get('/', (req, res) => res.send('Crypto API with WebSocket is running 🚀')
 // -------------------------
 app.listen(PORT, async () => {
     console.log(`Crypto API running on port ${PORT}`);
-    await fetchInitialTickers();
+    await initializeCoins();
     connectBinanceWS();
     connectBitgetWS();
 });
