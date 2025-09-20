@@ -1,34 +1,39 @@
 {
   "name": "crypto-api",
   "version": "1.0.0",
-  "description": "Robust Crypto API fetching Binance & Bitget prices, gainers, losers, newly listed coins, and candlesticks.",
+  "description": "A robust crypto price & candlestick API aggregator (Binance + Bitget) with gainers/losers categorization.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js",        // for production
+    "dev": "nodemon server.js",       // for local development (needs nodemon)
+    "lint": "eslint ."
   },
   "keywords": [
     "crypto",
     "api",
+    "express",
     "binance",
     "bitget",
-    "realtime",
-    "gainers",
-    "losers",
-    "candlesticks"
+    "candlestick",
+    "price-tracker"
   ],
-  "author": "Emmanuel Chekwubechukwu",
+  "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "axios": "^1.6.3",
+    "axios": "^1.7.7",
     "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "ws": "^8.14.1"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "node-cache": "^5.1.2"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.1.4",
+    "eslint": "^9.10.0"
   },
   "engines": {
-    "node": "20.x"
+    "node": ">=18.0.0"
   }
 }
